@@ -37,28 +37,35 @@ stages:
   dependsOn: Build
   condition: succeeded()
   jobs:
-  - deployment: DeployWeb
+  - job: DeployWeb
     displayName: 'Target Web Servers'
-    # This hooks directly into the Environment tracking system
-    environment:
-      name: 'myecomm-vm-environment'
-      resourceType: VirtualMachine
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - task: ExtractFiles@1
-            displayName: 'Extract code artifact'
-            inputs:
-              archiveFilePatterns: '$(Pipeline.Workspace)/drop/$(Build.BuildId).zip'
-              destinationFolder: '/home/azureuser/app'
-              cleanDestinationFolder: false
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    # This downloads the packaged zip file we created in the Build Stage
+    - task: DownloadBuildArtifacts@0
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Pipeline.Workspace)'
 
-          - task: CmdLine@2
-            displayName: 'Install Dependencies and Boot Application'
-            inputs:
-              script: |
-                cd /home/azureuser/app
-                pip3 install -r requirements.txt --break-system-packages
-                pkill -f app.py || true
-                nohup python3 app.py > output.log 2>&1 &
+    # This routes the deployment directly through your existing Deployment Group
+    - task: DeploymentGroupPhase@1
+      displayName: 'Execute on VM Group'
+      inputs:
+        DeploymentGroupName: 'myecomm-vm-group'
+        Tags: 'web'
+        DeploymentGroupTargetPattern: '*'
+      # Inside the VMs, execute these exact extraction and startup tasks
+      # The target path has been adjusted to /home/azureuser to ensure zero permission errors
+        ConnectedServiceNameSelector: 'ConnectedServiceName'
+        ScriptType: 'inline'
+        InlineScript: |
+          mkdir -p /home/azureuser/app
+          cp $(Pipeline.Workspace)/drop/*.zip /home/azureuser/app/
+          cd /home/azureuser/app
+          unzip -o *.zip || true
+          pip3 install -r requirements.txt --break-system-packages
+          pkill -f app.py || true
+          nohup python3 app.py > output.log 2>&1 &
