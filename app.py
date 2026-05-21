@@ -14,7 +14,7 @@ def test_db_connection():
         conn = pyodbc.connect(
             Driver='{ODBC Driver 18 for SQL Server}',
             Server='tcp:myecomm-server.database.windows.net,1433',
-            Database='myecomm-db',
+            Database='myecomm-db-pb',
             UID='dbadmin',
             PWD='Password1234',
             Encrypt='yes',
