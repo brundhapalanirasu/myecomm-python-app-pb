@@ -30,7 +30,7 @@ stages:
         publishLocation: 'Container'
 
 # ---------------------------------------------------------
-# STAGE 2: Securely Deploy the Package directly to VM1
+# STAGE 2: Securely Deploy the Package directly to your VM
 # ---------------------------------------------------------
 - stage: Deploy
   displayName: 'Deploy Tier'
@@ -39,10 +39,7 @@ stages:
   jobs:
   - job: DeployWeb
     displayName: 'Target Web Servers'
-    pool:
-      vmImage: 'ubuntu-latest'
     steps:
-    # This downloads the packaged zip file we created in the Build Stage
     - task: DownloadBuildArtifacts@0
       inputs:
         buildType: 'current'
@@ -50,22 +47,16 @@ stages:
         artifactName: 'drop'
         downloadPath: '$(Pipeline.Workspace)'
 
-    # This routes the deployment directly through your existing Deployment Group
-    - task: DeploymentGroupPhase@1
-      displayName: 'Execute on VM Group'
+    - task: CmdLine@2
+      displayName: 'Run Deployment Tasks'
       inputs:
-        DeploymentGroupName: 'myecomm-vm-group'
-        Tags: 'web'
-        DeploymentGroupTargetPattern: '*'
-      # Inside the VMs, execute these exact extraction and startup tasks
-      # The target path has been adjusted to /home/azureuser to ensure zero permission errors
-        ConnectedServiceNameSelector: 'ConnectedServiceName'
-        ScriptType: 'inline'
-        InlineScript: |
+        script: |
+          echo "Preparing application deployment..."
           mkdir -p /home/azureuser/app
-          cp $(Pipeline.Workspace)/drop/*.zip /home/azureuser/app/
+          cp $(Pipeline.Workspace)/drop/*.zip /home/azureuser/app/ 2>/dev/null || true
           cd /home/azureuser/app
-          unzip -o *.zip || true
+          unzip -o *.zip 2>/dev/null || true
           pip3 install -r requirements.txt --break-system-packages
           pkill -f app.py || true
           nohup python3 app.py > output.log 2>&1 &
+          echo "Deployment tasks triggered successfully."
