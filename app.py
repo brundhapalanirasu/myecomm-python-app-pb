@@ -8,18 +8,7 @@ app = Flask(__name__)
 # STEP 1: PASTE YOUR EXACT AZURE SQL CONNECTION STRING HERE FROM NOTEPAD
 # Make sure to replace your real username (e.g. dbadmin) and your password!
 # =========================================================================
-DB_CONNECTION_STRING = (
-    "Driver={ODBC Driver 18 for SQL Server};"
-    "Server=tcp:myecomm-server.database.windows.net,1433;"
-    "Initial Catalog=myecomm-db;"
-    "Persist Security Info=False;"
-    "User ID=dbadmin;"
-    "Password=Password1234;"
-    "MultipleActiveResultSets=False;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=yes;"
-    "Connection Timeout=30;"
-)
+DB_CONNECTION_STRING = "Driver={ODBC Driver 18 for SQL Server};Server=tcp:myecomm-server.database.windows.net,1433;Initial Catalog=myecomm-db;Persist Security Info=False;User ID=dbadmin;Password=Password1234;MultipleActiveResultSets=False;Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30;"
 
 def test_db_connection():
     """Attempts to connect to the Azure SQL Database to verify credentials."""
