@@ -19,7 +19,7 @@ def test_db_connection():
             PWD='Password1234',
             Encrypt='yes',
             TrustServerCertificate='yes',
-            Timeout=30
+            Timeout=90
         )
         cursor = conn.cursor()
         # Run a simple built-in query to prove the database is responding
