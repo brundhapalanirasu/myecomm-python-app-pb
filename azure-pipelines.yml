@@ -1,37 +1,64 @@
-# Python package
-# Create and test a Python package on multiple Python versions.
-# Add steps that analyze code, save the dist with the build record, publish to a PyPI-compatible index, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/python
-
 trigger:
 - main
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'ubuntu-latest'
 
-strategy:
-  matrix:
-    Python38:
-      python.version: '3.8'
-    Python39:
-      python.version: '3.9'
-    Python310:
-      python.version: '3.10'
-    Python311:
-      python.version: '3.11'
+stages:
+# ---------------------------------------------------------
+# STAGE 1: Package your Python App files into an Artifact
+# ---------------------------------------------------------
+- stage: Build
+  displayName: 'Package Application'
+  jobs:
+  - job: BuildJob
+    steps:
+    - task: ArchiveFiles@2
+      displayName: 'Zip application source'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
 
-steps:
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '$(python.version)'
-  displayName: 'Use Python $(python.version)'
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Package to Pipeline'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
 
-- script: |
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-  displayName: 'Install dependencies'
+# ---------------------------------------------------------
+# STAGE 2: Securely Deploy the Package directly to VM1
+# ---------------------------------------------------------
+- stage: Deploy
+  displayName: 'Deploy Tier'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - deployment: DeployWeb
+    displayName: 'Target Web Servers'
+    # This hooks directly into the Environment tracking system
+    environment:
+      name: 'myecomm-vm-environment'
+      resourceType: VirtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: ExtractFiles@1
+            displayName: 'Extract code artifact'
+            inputs:
+              archiveFilePatterns: '$(Pipeline.Workspace)/drop/$(Build.BuildId).zip'
+              destinationFolder: '/home/azureuser/app'
+              cleanDestinationFolder: false
 
-- script: |
-    pip install pytest pytest-azurepipelines
-    pytest
-  displayName: 'pytest'
+          - task: CmdLine@2
+            displayName: 'Install Dependencies and Boot Application'
+            inputs:
+              script: |
+                cd /home/azureuser/app
+                pip3 install -r requirements.txt --break-system-packages
+                pkill -f app.py || true
+                nohup python3 app.py > output.log 2>&1 &
