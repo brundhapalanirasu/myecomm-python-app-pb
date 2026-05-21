@@ -16,8 +16,8 @@ DB_CONNECTION_STRING = (
     "User ID=dbadmin;"
     "Password=Password1234;"
     "MultipleActiveResultSets=False;"
-    "Encrypt=True;"
-    "TrustServerCertificate=Yes;"
+    "Encrypt=yes;"
+    "TrustServerCertificate=yes;"
     "Connection Timeout=30;"
 )
 
