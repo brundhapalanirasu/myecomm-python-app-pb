@@ -4,123 +4,59 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
-steps:
-- task: AzureCLI@2
-  displayName: 'Deploy Python Flask App to All VMSS Instances'
-  inputs:
-    azureSubscription: 'azure-vmss-conn'
-    scriptType: bash
-    scriptLocation: inlineScript
-    inlineScript: |
-      # 1. Dynamically find all active VM instance IDs inside your scale set
-      INSTANCE_IDS=$(az vmss list-instances \
-        --resource-group RG-User05 \
-        --name vm-set-pb \
-        --query "[].instanceId" \
-        --output tsv)
+stages:
+# ---------------------------------------------------------
+# STAGE 1: Package your Python App files into an Artifact
+# ---------------------------------------------------------
+- stage: Build
+  displayName: 'Package Application'
+  jobs:
+  - job: BuildJob
+    steps:
+    - task: ArchiveFiles@2
+      displayName: 'Zip application source'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
 
-      # 2. Loop through each discovered instance and inject the deployment payload
-      for id in $INSTANCE_IDS
-      do
-        echo "Deploying update stream to instance ID: $id"
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Package to Pipeline'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
 
-        az vmss run-command invoke \
-          --resource-group RG-User05 \
-          --name vm-set-pb \
-          --instance-id $id \
-          --command-id RunShellScript \
-          --scripts "
-            # Establish the target deployment folder
-            sudo mkdir -p /home/azureuser/myecomm-app
-            sudo chown -R azureuser:azureuser /home/azureuser/myecomm-app
-            cd /home/azureuser/myecomm-app
+# ---------------------------------------------------------
+# STAGE 2: Securely Deploy the Package directly to your VM
+# ---------------------------------------------------------
+- stage: Deploy
+  displayName: 'Deploy Tier'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: DeployWeb
+    displayName: 'Target Web Servers'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Pipeline.Workspace)'
 
-            # Fail-safe install of standard libraries since network connections are isolated
-            sudo apt-get update -y || true
-            sudo apt-get install -y python3-pip python3-flask || true
-
-            # Write out your multi-tier app.py logic directly onto the disk
-            cat << 'EOF' > app.py
-from flask import Flask, render_template_string
-import socket
-
-try:
-    import pyodbc
-    HAS_PYODBC = True
-except ImportError:
-    HAS_PYODBC = False
-
-app = Flask(__name__)
-
-def test_db_connection():
-    if not HAS_PYODBC:
-        return "Connection Failed! Error details: The 'pyodbc' library or standard Linux compilation tools are missing from this host environment."
-    try:
-        conn = pyodbc.connect(
-            Driver='{ODBC Driver 18 for SQL Server}',
-            Server='tcp:ecomm-server-pb.database.windows.net,1433',
-            Database='free-sql-db-8345161',
-            UID='dbadmin',
-            PWD='Password1234',  
-            Encrypt='yes',
-            TrustServerCertificate='yes',
-            Timeout=15
-        )
-        cursor = conn.cursor()
-        cursor.execute(\"SELECT @@VERSION\")
-        row = cursor.fetchone()
-        conn.close()
-        return f\"Connected Successfully! Database Version: {row[0]}\"
-    except Exception as e:
-        return f\"Connection Failed! Error details: {str(e)}\"
-
-HTML_TEMPLATE = \"\"\"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>E-Commerce App Layer</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 40px; text-align: center; }
-        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        h1 { color: #0078d4; margin-bottom: 5px; }
-        .server-badge { background-color: #0078d4; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; display: inline-block; margin-bottom: 20px; }
-        .status-box { padding: 15px; border-radius: 4px; margin-top: 20px; font-weight: bold; font-family: monospace; word-wrap: break-word; }
-        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .fail { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .info { font-size: 0.9em; color: #666; margin-top: 15px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Myecomm Production Frontend</h1>
-        <div class="server-badge">Served by Instance: {{ server_hostname }}</div>
-        <p>Your Public Load Balancer has successfully routed traffic to this scale set instance.</p>
-        <hr/>
-        <h3>Backend Tier Verification</h3>
-        <div class="status-box {{ status_class }}">
-            {{ db_status_message }}
-        </div>
-        <p class="info">Architecture Status: <strong>3-Tier Verified Active via Scale Set</strong></p>
-    </div>
-</body>
-</html>
-\"\"\"
-
-@app.route('/')
-def home():
-    db_result = test_db_connection()
-    vm_hostname = socket.gethostname()
-    status_class = \"success\" if \"Successfully\" in db_result else \"fail\"
-    return render_template_string(HTML_TEMPLATE, db_status_message=db_result, status_class=status_class, server_hostname=vm_hostname)
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80)
-EOF
-
-            # Clear out any stale web processes running on Port 80
-            sudo pkill -f app.py || true
-
-            # Boot up the fresh app.py script into a detached background daemon execution
-            sudo nohup python3 app.py > output.log 2>&1 &
-          "
-      done
+    - task: CmdLine@2
+      displayName: 'Run Deployment Tasks'
+      inputs:
+        script: |
+          echo "Preparing application deployment..."
+          mkdir -p /home/azureuser/app
+          cp $(Pipeline.Workspace)/drop/*.zip /home/azureuser/app/ 2>/dev/null || true
+          cd /home/azureuser/app
+          unzip -o *.zip 2>/dev/null || true
+          pip3 install -r requirements.txt --break-system-packages
+          pkill -f app.py || true
+          nohup python3 app.py > output.log 2>&1 &
+          echo "Deployment tasks triggered successfully."
