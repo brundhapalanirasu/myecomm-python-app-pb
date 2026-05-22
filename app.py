@@ -24,7 +24,7 @@ def test_db_connection():
             PWD='Password1234',  
             Encrypt='yes',
             TrustServerCertificate='yes',
-            Timeout=15  # Decreased slightly so your webpage doesn't hang too long on load
+            Timeout=15
         )
         cursor = conn.cursor()
         cursor.execute("SELECT @@VERSION")
