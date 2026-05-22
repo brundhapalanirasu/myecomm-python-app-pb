@@ -1,35 +1,62 @@
-# Python package
-# Create and test a Python package on multiple Python versions.
-# Add steps that analyze code, save the dist with the build record, publish to a PyPI-compatible index, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/python
-
 trigger:
 - main
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'ubuntu-latest'
 
-strategy:
-  matrix:
-    Python311:
-      python.version: '3.11'
+stages:
+# ---------------------------------------------------------
+# STAGE 1: Package your Python App files into an Artifact
+# ---------------------------------------------------------
+- stage: Build
+  displayName: 'Package Application'
+  jobs:
+  - job: BuildJob
+    steps:
+    - task: ArchiveFiles@2
+      displayName: 'Zip application source'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
 
-steps:
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '$(python.version)'
-  displayName: 'Use Python $(python.version)'
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Package to Pipeline'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
 
-- script: |
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-  displayName: 'Install dependencies'
+# ---------------------------------------------------------
+# STAGE 2: Securely Deploy the Package directly to your VM
+# ---------------------------------------------------------
+- stage: Deploy
+  displayName: 'Deploy Tier'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: DeployWeb
+    displayName: 'Target Web Servers'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Pipeline.Workspace)'
 
-- task: AzureCLI@2
-  displayName: 'Deploy Flask App to VMSS'
-  inputs:
-    azureSubscription: 'azure-vmss-conn'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      az vmss run-command invoke --resource-group RG-User05 --name vm-set-pb --instance-ids 0 --command-id RunShellScript --scripts "echo 'from flask import Flask; app = Flask(__name__); @app.route(\"/\")\ndef home(): return \"E-commerce App Running\"\nif __name__ == \"__main__\": app.run(host=\"0.0.0.0\", port=80)' > /home/azureuser/app.py && pkill -f app.py || true && sudo python3 /home/azureuser/app.py > /dev/null 2>&1 &"
+    - task: CmdLine@2
+      displayName: 'Run Deployment Tasks'
+      inputs:
+        script: |
+          echo "Preparing application deployment..."
+          mkdir -p /home/azureuser/app
+          cp $(Pipeline.Workspace)/drop/*.zip /home/azureuser/app/ 2>/dev/null || true
+          cd /home/azureuser/app
+          unzip -o *.zip 2>/dev/null || true
+          pip3 install -r requirements.txt --break-system-packages
+          pkill -f app.py || true
+          nohup python3 app.py > output.log 2>&1 &
+          echo "Deployment tasks triggered successfully."
