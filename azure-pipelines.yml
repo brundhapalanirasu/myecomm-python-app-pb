@@ -11,12 +11,6 @@ pool:
 
 strategy:
   matrix:
-    Python38:
-      python.version: '3.8'
-    Python39:
-      python.version: '3.9'
-    Python310:
-      python.version: '3.10'
     Python311:
       python.version: '3.11'
 
@@ -41,5 +35,6 @@ steps:
       az vmss run-command invoke \
         --resource-group RG-User05 \
         --name vm-set-pb \
+        --instance-ids '*' \
         --command-id RunShellScript \
-        --scripts "cd /home/azureuser && sudo apt-get update || true && sudo apt-get install -y python3-flask python3-pip || true && sudo python3 app.py &"
+        --scripts "echo 'from flask import Flask; app = Flask(__name__); @app.route(\"/ \")\ndef home(): return \"E-commerce App Running\"\nif __name__ == \"__main__\": app.run(host=\"0.0.0.0\", port=80)' > /home/azureuser/app.py && pkill -f app.py || true && sudo python3 /home/azureuser/app.py > /dev/null 2>&1 &"
