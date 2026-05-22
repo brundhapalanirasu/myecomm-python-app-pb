@@ -1,11 +1,20 @@
 from flask import Flask, render_template_string
-import pyodbc
-import socket  # Added to identify which scale set instance is serving traffic
+import socket  # Identifies which scale set instance is serving traffic
+
+# Safe import wrap for pyodbc to handle environment driver absences gracefully
+try:
+    import pyodbc
+    HAS_PYODBC = True
+except ImportError:
+    HAS_PYODBC = False
 
 app = Flask(__name__)
 
 def test_db_connection():
     """Attempts to connect to the updated Azure SQL Database to verify credentials."""
+    if not HAS_PYODBC:
+        return "Connection Failed! Error details: The 'pyodbc' library or standard Linux compilation tools are missing from this host environment."
+        
     try:
         conn = pyodbc.connect(
             Driver='{ODBC Driver 18 for SQL Server}',
@@ -15,7 +24,7 @@ def test_db_connection():
             PWD='Password1234',  
             Encrypt='yes',
             TrustServerCertificate='yes',
-            Timeout=50
+            Timeout=15  # Decreased slightly so your webpage doesn't hang too long on load
         )
         cursor = conn.cursor()
         cursor.execute("SELECT @@VERSION")
@@ -25,7 +34,7 @@ def test_db_connection():
     except Exception as e:
         return f"Connection Failed! Error details: {str(e)}"
 
-# Updated HTML template to prominently feature Scale Set routing tracking
+# HTML template tracking Scale Set routing status
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -36,7 +45,7 @@ HTML_TEMPLATE = """
         .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         h1 { color: #0078d4; margin-bottom: 5px; }
         .server-badge { background-color: #0078d4; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; display: inline-block; margin-bottom: 20px; }
-        .status-box { padding: 15px; border-radius: 4px; margin-top: 20px; font-weight: bold; font-family: monospace; }
+        .status-box { padding: 15px; border-radius: 4px; margin-top: 20px; font-weight: bold; font-family: monospace; word-wrap: break-word; }
         .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .fail { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .info { font-size: 0.9em; color: #666; margin-top: 15px; }
@@ -80,5 +89,5 @@ def home():
     )
 
 if __name__ == '__main__':
-    # Binds to Port 80 to catch the Load Balancer's standard HTTP probes
+    # Binds to Port 80 to catch the Load Balancer's standard HTTP traffic flow
     app.run(host='0.0.0.0', port=80)
