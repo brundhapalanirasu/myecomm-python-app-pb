@@ -5,38 +5,24 @@ pool:
   vmImage: 'ubuntu-latest'
 
 steps:
-# Task 1: Optional Bicep deployment step (uncomment if you are actively using main.bicep)
-# - task: AzureCLI@2
-#   displayName: 'Deploy Infrastructure via Bicep'
-#   inputs:
-#     azureSubscription: 'azure-vmss-conn'
-#     scriptType: bash
-#     scriptLocation: inlineScript
-#     inlineScript: |
-#       az deployment group create \
-#         --resource-group RG-User05 \
-#         --template-file main.bicep \
-#         --parameters @parameters.json
-
-# Task 2: Dynamically loop through VMSS instances and deploy Python App
 - task: AzureCLI@2
-  displayName: 'Deploy Python Flask App to All Instances'
+  displayName: 'Deploy Python Flask App to All VMSS Instances'
   inputs:
     azureSubscription: 'azure-vmss-conn'
     scriptType: bash
     scriptLocation: inlineScript
     inlineScript: |
-      # 1. Dynamically grab all active instance IDs for your scale set
+      # 1. Dynamically find all active VM instance IDs inside your scale set
       INSTANCE_IDS=$(az vmss list-instances \
         --resource-group RG-User05 \
         --name vm-set-pb \
         --query "[].instanceId" \
         --output tsv)
 
-      # 2. Iterate through each discovered VM instance
+      # 2. Loop through each discovered instance and inject the deployment payload
       for id in $INSTANCE_IDS
       do
-        echo "Deploying application matrix to scale set instance ID: $id"
+        echo "Deploying update stream to instance ID: $id"
 
         az vmss run-command invoke \
           --resource-group RG-User05 \
@@ -44,16 +30,16 @@ steps:
           --instance-id $id \
           --command-id RunShellScript \
           --scripts "
-            # Set up target file directories safely
+            # Establish the target deployment folder
             sudo mkdir -p /home/azureuser/myecomm-app
             sudo chown -R azureuser:azureuser /home/azureuser/myecomm-app
             cd /home/azureuser/myecomm-app
 
-            # Incline clean fallback requirements injection since internet updates are dropped
+            # Fail-safe install of standard libraries since network connections are isolated
             sudo apt-get update -y || true
             sudo apt-get install -y python3-pip python3-flask || true
 
-            # Write out your custom production 3-tier Python app script directly to the host
+            # Write out your multi-tier app.py logic directly onto the disk
             cat << 'EOF' > app.py
 from flask import Flask, render_template_string
 import socket
@@ -68,7 +54,7 @@ app = Flask(__name__)
 
 def test_db_connection():
     if not HAS_PYODBC:
-        return \"Backend status unknown: Core system ODBC database compiling headers are missing from this offline cloud node container.\"
+        return "Connection Failed! Error details: The 'pyodbc' library or standard Linux compilation tools are missing from this host environment."
     try:
         conn = pyodbc.connect(
             Driver='{ODBC Driver 18 for SQL Server}',
@@ -86,7 +72,7 @@ def test_db_connection():
         conn.close()
         return f\"Connected Successfully! Database Version: {row[0]}\"
     except Exception as e:
-        return f\"Connection Failed! Details: {str(e)}\"
+        return f\"Connection Failed! Error details: {str(e)}\"
 
 HTML_TEMPLATE = \"\"\"
 <!DOCTYPE html>
@@ -131,10 +117,10 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
 EOF
 
-            # Kill any old running instances of app.py to avoid port collisions
+            # Clear out any stale web processes running on Port 80
             sudo pkill -f app.py || true
 
-            # Spin up the fresh app.py script into the background targeting root Port 80
+            # Boot up the fresh app.py script into a detached background daemon execution
             sudo nohup python3 app.py > output.log 2>&1 &
           "
       done
