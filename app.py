@@ -1,28 +1,23 @@
 from flask import Flask, render_template_string
 import pyodbc
-import sys
+import socket  # Added to identify which scale set instance is serving traffic
 
 app = Flask(__name__)
 
-# =========================================================================
-# STEP 1: PASTE YOUR EXACT AZURE SQL CONNECTION STRING HERE FROM NOTEPAD
-# Make sure to replace your real username (e.g. dbadmin) and your password!
-# =========================================================================
 def test_db_connection():
-    """Attempts to connect to the Azure SQL Database to verify credentials."""
+    """Attempts to connect to the updated Azure SQL Database to verify credentials."""
     try:
         conn = pyodbc.connect(
             Driver='{ODBC Driver 18 for SQL Server}',
-            Server='tcp:myecomm-server.database.windows.net,1433',
-            Database='ecomm-db-pb',
+            Server='tcp:ecomm-server-pb.database.windows.net,1433',
+            Database='free-sql-db-8345161',
             UID='dbadmin',
-            PWD='Password1234',
+            PWD='Password1234',  
             Encrypt='yes',
             TrustServerCertificate='yes',
-            Timeout=90
+            Timeout=50
         )
         cursor = conn.cursor()
-        # Run a simple built-in query to prove the database is responding
         cursor.execute("SELECT @@VERSION")
         row = cursor.fetchone()
         conn.close()
@@ -30,18 +25,17 @@ def test_db_connection():
     except Exception as e:
         return f"Connection Failed! Error details: {str(e)}"
 
-
-
-# HTML Template layout for your web browser interface
+# Updated HTML template to prominently feature Scale Set routing tracking
 HTML_TEMPLATE = """
-<!hidden>
+<!DOCTYPE html>
 <html>
 <head>
     <title>E-Commerce App Layer</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 40px; text-align: center; }
         .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        h1 { color: #0078d4; }
+        h1 { color: #0078d4; margin-bottom: 5px; }
+        .server-badge { background-color: #0078d4; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; display: inline-block; margin-bottom: 20px; }
         .status-box { padding: 15px; border-radius: 4px; margin-top: 20px; font-weight: bold; font-family: monospace; }
         .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .fail { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
@@ -51,13 +45,14 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <h1>Myecomm Production Frontend</h1>
-        <p>Your Public Load Balancer has successfully routed traffic to this VM instance.</p>
+        <div class="server-badge">Served by Instance: {{ server_hostname }}</div>
+        <p>Your Public Load Balancer has successfully routed traffic to this scale set instance.</p>
         <hr/>
         <h3>Backend Tier Verification</h3>
         <div class="status-box {{ status_class }}">
             {{ db_status_message }}
         </div>
-        <p class="info">Architecture Status: <strong>3-Tier Verified Active</strong></p>
+        <p class="info">Architecture Status: <strong>3-Tier Verified Active via Scale Set</strong></p>
     </div>
 </body>
 </html>
@@ -68,13 +63,21 @@ def home():
     # Check the database connectivity live on every page reload
     db_result = test_db_connection()
     
+    # Dynamically grab the hostname of whichever VM is handling this execution loop
+    vm_hostname = socket.gethostname()
+    
     # Decide styling based on connection success
     if "Successfully" in db_result:
         status_class = "success"
     else:
         status_class = "fail"
         
-    return render_template_string(HTML_TEMPLATE, db_status_message=db_result, status_class=status_class)
+    return render_template_string(
+        HTML_TEMPLATE, 
+        db_status_message=db_result, 
+        status_class=status_class,
+        server_hostname=vm_hostname
+    )
 
 if __name__ == '__main__':
     # Binds to Port 80 to catch the Load Balancer's standard HTTP probes
