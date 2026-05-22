@@ -31,15 +31,15 @@ steps:
     pip install -r requirements.txt
   displayName: 'Install dependencies'
 
-- task: AzureVMsScaleSetDeployment@1
+- task: AzureCLI@2
   displayName: 'Deploy Flask App to VMSS'
   inputs:
     azureSubscription: 'azure-vmss-conn'
-    action: 'Update'
-    vmssName: 'vm-set-pb'
-    customScriptsDirectory: '$(System.DefaultWorkingDirectory)'
-    customScript: |
-      cd /home/azureuser
-      sudo apt-get update || true
-      sudo apt-get install -y python3-flask python3-pip || true
-      sudo python3 app.py &
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      az vmss run-command invoke \
+        --resource-group RG-User05 \
+        --name vm-set-pb \
+        --command-id RunShellScript \
+        --scripts "cd /home/azureuser && sudo apt-get update || true && sudo apt-get install -y python3-flask python3-pip || true && sudo python3 app.py &"
