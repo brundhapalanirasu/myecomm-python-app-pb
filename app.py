@@ -15,7 +15,7 @@ def test_db_connection():
             PWD='Password1234',  
             Encrypt='yes',
             TrustServerCertificate='yes',
-            Timeout=50
+            Timeout=90
         )
         cursor = conn.cursor()
         cursor.execute("SELECT @@VERSION")
